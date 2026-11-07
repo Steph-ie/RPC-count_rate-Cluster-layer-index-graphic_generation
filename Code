@@ -1,0 +1,103 @@
+import os
+import re
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
+
+def generate_all_rpc_pdf_hz():
+    file_path = 'Your file path' # Please ensure that the data file and the script are in the same directory
+    
+    if not os.path.exists(file_path):
+        print(f"Error: Data file not found '{file_path}'，Please verify whether the file path is correct.")
+        return
+
+    data_dict = {}  # Structure: {(cls, layer): [records]}
+    all_classes = set()
+    
+    with open(file_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            numbers = re.findall(r'\d+', line)
+            if len(numbers) >= 12:
+                pos_code = numbers[1]  # position label
+                if len(pos_code) >= 3:
+                    cls = int(pos_code[0:2])     # First two are Class
+                    layer = int(pos_code[2])     # The third one is Layer (1-5)
+                    
+                    if 1 <= layer <= 5:
+                       # The original file is already in Hz; read the values ​​directly—no need to divide by 60.
+                        pad_rates = [int(x) for x in numbers[2:12]]
+                        total_rate = int(numbers[-1])
+                        
+                        key = (cls, layer)
+                        if key not in data_dict:
+                            data_dict[key] = []
+                            
+                        data_dict[key].append({
+                            'rpc_id': pos_code,
+                            'pads': pad_rates,
+                            'total': total_rate
+                        })
+                        all_classes.add(cls)
+
+    if not data_dict:
+        print("Note: Failed to parse valid RPC data from the file.")
+        return
+
+    desktop_path = os.path.expanduser("~/Desktop")
+    os.makedirs(desktop_path, exist_ok=True)
+    pdf_filename = os.path.join(desktop_path, "RPC_Count_Rates_Hz_All_Layers.pdf")
+    
+    print(f"\n Generating charts and writing them to a PDF file...")
+    
+    with PdfPages(pdf_filename) as pdf:
+        sorted_classes = sorted(list(all_classes))
+        
+        for cls in sorted_classes:
+            for layer in range(1, 6):  # Layer 1 到 5
+                key = (cls, layer)
+                if key not in data_dict:
+                    continue
+                
+                records = data_dict[key]
+                
+                # Calculate statistical data
+                all_pad_values = [p for rec in records for p in rec['pads']]
+                mean_rate = np.mean(all_pad_values)
+                layer_total_rate = sum(rec['total'] for rec in records)
+                
+                # Increase the canvas width to accommodate the legend
+                plt.figure(figsize=(11, 6))
+                
+                for record in records:
+                    plt.plot(range(1, 11), record['pads'], marker='o', alpha=0.6, 
+                             label=f"RPC {record['rpc_id']}")
+                
+                # Draw a dashed line for the mean value
+                plt.axhline(y=mean_rate, color='red', linestyle='--', linewidth=2, 
+                            label=f'Pad Mean: {mean_rate:.1f} Hz')
+                
+                # Include the unit "Hz" in the title
+                title_text = (
+                    f"RPC Count Rates - Cluster {cls}, Layer {layer}\n"
+                    f"Layer Total Rate: {layer_total_rate} Hz | Pad Mean Rate: {mean_rate:.1f} Hz"
+                )
+                plt.title(title_text, fontsize=13)
+                plt.xlabel("Pad Index (1-10)", fontsize=12)
+                plt.ylabel("Count Rate (Hz)", fontsize=12)
+                plt.grid(True, linestyle='--', alpha=0.6)
+                
+                # The legend is displayed regardless of the number of records. If there are many records, it automatically splits into two columns and reduces the font size to prevent it from becoming too long.
+                ncol = 2 if len(records) > 8 else 1
+                plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', fontsize='small', ncol=ncol)
+                    
+                # Use bbox_inches='tight' Ensure that the legend on the right is not cropped out when saving as a PDF.
+                plt.tight_layout()
+                pdf.savefig(bbox_inches='tight')
+                plt.close()
+                print(f"Successfully written to the page: Cluster {cls} - Layer {layer}")
+
+    print(f"\n🎉 All completed this is stored at desktop：")
+    print(f"📁 path: {pdf_filename}")
+
+if __name__ == "__main__":
+    generate_all_rpc_pdf_hz()
